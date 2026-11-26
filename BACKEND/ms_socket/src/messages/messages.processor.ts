@@ -15,8 +15,9 @@ export class MessageProcessor {
       `Start transcoding room ${job.data.message.channelId}...`,
     );
     this.logger.debug(job.data);
+    // rooms are joined by string name; a numeric channelId would match none
     this.eventsGateway.server
-      .to(job.data.message.channelId)
+      .to(String(job.data.message.channelId))
       .emit('message', job.data.message);
     this.logger.debug('Transcoding completed');
   }

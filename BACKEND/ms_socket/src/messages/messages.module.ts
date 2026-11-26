@@ -1,15 +1,16 @@
 import { BullModule } from '@nestjs/bull';
 import { Module } from '@nestjs/common';
 import { MessageProcessor } from './messages.processor';
-import { EventsGateway } from 'src/events/events.gateway';
+import { EventsModule } from 'src/events/events.module';
 
 @Module({
   imports: [
     BullModule.registerQueue({
       name: 'messages',
     }),
+    EventsModule,
   ],
-  providers: [MessageProcessor, EventsGateway],
+  providers: [MessageProcessor],
   exports: [BullModule],
 })
 export class MessagesModule {}
