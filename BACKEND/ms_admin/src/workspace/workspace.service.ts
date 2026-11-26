@@ -26,6 +26,21 @@ export class WorkspaceService {
     }
   }
 
+  async addUserToWorkspace(
+    userWorkspace: any,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _user: any,
+  ): Promise<UserWorkspace> {
+    try {
+      return await this.userWorkspaceRepository.save({
+        userId: userWorkspace.invitedUserId,
+        workspaceId: userWorkspace.workspaceId,
+      });
+    } catch (error) {
+      throw error;
+    }
+  }
+
   async getOne(workspaceId: number) {
     return await this.repository.findOne({
       where: { workspaceId },
@@ -37,7 +52,13 @@ export class WorkspaceService {
   // not only the ones the caller belongs to.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async getAll(userId: number) {
-    return await this.repository.find();
+    const userWorkspaces = await this.userWorkspaceRepository.find({
+      where: {
+        userId,
+      },
+      relations: ['workspace'],
+    });
+    return userWorkspaces.map((userWorkspace) => userWorkspace.workspace);
   }
 
   async filter(accountId: number, workspaceId: number, params: any) {

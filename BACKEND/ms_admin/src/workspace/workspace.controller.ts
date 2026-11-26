@@ -24,14 +24,19 @@ import {
   ApiCreatedResponse,
 } from '@nestjs/swagger';
 import { ApiGuard } from 'src/utils/guards/api.guard';
-import { UserAuthInterceptor } from 'src/common/interceptor/context.interceptor';
+import {
+  WorkspaceParamInterceptor,
+  UserAuthInterceptor,
+} from 'src/common/interceptor/context.interceptor';
 import { AuthUser } from 'src/utils/decorators/auth-user-decorators';
+import { CreateUserWorkspaceDTO } from './dto/createUserWorkspace.dto';
 
 @ApiBearerAuth()
 @ApiTags('workspace')
 @Controller('workspace')
 @UseGuards(ApiGuard)
 @ApiBearerAuth('access-token')
+@UseInterceptors(new WorkspaceParamInterceptor())
 export class WorkspaceController {
   constructor(private workspaceService: WorkspaceService) {}
 
@@ -98,11 +103,45 @@ export class WorkspaceController {
     @AuthUser() user: any,
   ) {
     try {
-      const accountCreated = await this.workspaceService.createOne(body, user);
+      const workspaceCreated = await this.workspaceService.createOne(
+        body,
+        user,
+      );
       return res.status(HttpStatus.OK).json({
         status: 201,
         message: 'Se creó correctamente el espacio de trabajo',
-        accountCreated,
+        workspaceCreated,
+      });
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: 404,
+          error: 'El espacio de trabajo es inválido' + error.message,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+  }
+
+  @Post(':workspaceId/user')
+  @ApiOperation({ summary: 'Create user workspace' })
+  @ApiBody({ type: CreateUserWorkspaceDTO })
+  @ApiCreatedResponse({ description: 'User Workspace created' })
+  @ApiResponse({ status: 404, description: 'Forbidden.' })
+  @UseInterceptors(new UserAuthInterceptor())
+  async addUserWorkspace(
+    @Res() res: Response,
+    @Body() body: CreateUserWorkspaceDTO,
+    @AuthUser() user: any,
+  ) {
+    try {
+      const userWorkspaceCreated =
+        await this.workspaceService.addUserToWorkspace(body, user);
+      return res.status(HttpStatus.OK).json({
+        status: 201,
+        message:
+          'Se creó agrego correctamente el usuario al espacio de trabajo',
+        userWorkspaceCreated,
       });
     } catch (error) {
       throw new HttpException(
