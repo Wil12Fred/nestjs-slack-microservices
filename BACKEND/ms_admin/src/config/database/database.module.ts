@@ -9,8 +9,15 @@ import config from '../config';
     TypeOrmModule.forRootAsync({
       inject: [config.KEY],
       useFactory: (configService: ConfigType<typeof config>) => {
-        const { host, port, database, logging, username, password } =
-          configService.typeorm;
+        const {
+          host,
+          port,
+          database,
+          logging,
+          username,
+          password,
+          synchronize,
+        } = configService.typeorm;
         return {
           type: 'mysql',
           host,
@@ -19,7 +26,7 @@ import config from '../config';
           username,
           logging: logging == 'true',
           password,
-          synchronize: false,
+          synchronize: synchronize == 'true',
           autoLoadEntities: true,
         };
       },
