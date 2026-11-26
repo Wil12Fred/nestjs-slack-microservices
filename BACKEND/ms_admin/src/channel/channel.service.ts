@@ -1,13 +1,24 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { Channel } from './models/channel.model';
-import { FindOptionsWhere, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ChannelMessage } from './models/channelMessage.model';
 import { CreateChannelMessageDTO } from './dto/createChannelMessage.dto';
+import { CreateChannelDTO } from './dto/createChannel.dto';
 import { Message } from 'src/message/models/message.model';
 import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bull';
+import { WorkspaceService } from 'src/workspace/workspace.service';
 
+/** The caller, as ApiGuard put it on the request from ms_auth's answer. */
+interface Caller {
+  userId: number;
+}
+
+/**
+ * A channel belongs to exactly one workspace (Channel.workspaceId), so access
+ * to a channel is membership of that workspace, checked by WorkspaceService.
+ */
 @Injectable()
 export class ChannelService {
   constructor(
@@ -18,52 +29,62 @@ export class ChannelService {
     @InjectRepository(ChannelMessage)
     private channelMessageRepository: Repository<ChannelMessage>,
     @InjectQueue('messages') private readonly messagesQueue: Queue,
+    private readonly workspaceService: WorkspaceService,
   ) {}
 
-  async createOne(channel: any): Promise<Channel> {
-    try {
-      return await this.repository.save(channel);
-    } catch (error) {
-      console.log(error);
-      return error;
-    }
+  /** Creates a channel in a workspace the caller is a member of (else 403). */
+  async createOne(channel: CreateChannelDTO, user: Caller): Promise<Channel> {
+    await this.workspaceService.assertMember(user.userId, channel.workspaceId);
+    return await this.repository.save({
+      workspaceId: Number(channel.workspaceId),
+      name: channel.name,
+    });
   }
 
   async getOne(channelId: number) {
     return await this.repository.findOne({ where: { channelId } });
   }
 
-  async createMessage(message: CreateChannelMessageDTO): Promise<Message> {
-    try {
-      const newMessage = await this.messageRepository.save({
-        userId: message.userId,
-        text: message.text,
-        username: message.username,
-      });
-      await this.channelMessageRepository.save({
-        messageId: newMessage.messageId,
-        channelId: message.channelId,
-      });
-      message.messageId = newMessage.messageId;
-      await this.messagesQueue.add('transcode', {
-        message,
-      });
-      return newMessage;
-    } catch (error) {
-      console.log(error);
-      return error;
+  /**
+   * Loads a channel and checks the caller belongs to its workspace:
+   * 404 if there is no such channel, 403 if they are not a member.
+   */
+  private async getAccessible(channelId: number, user: Caller) {
+    const channel = await this.getOne(Number(channelId));
+    if (!channel) {
+      throw new NotFoundException('Channel not found');
     }
+    await this.workspaceService.assertMember(user.userId, channel.workspaceId);
+    return channel;
   }
 
-  async filter(_accountId: number, channelId: number, params: any) {
-    const whereOptions: FindOptionsWhere<Channel> = {
-      channelId,
-    };
-    if (params) {
-      console.log(params);
-    }
+  /** Stores a message in a channel the caller can access, then queues it. */
+  async createMessage(
+    message: CreateChannelMessageDTO,
+    user: Caller,
+  ): Promise<Message> {
+    const channel = await this.getAccessible(message.channelId, user);
+    const newMessage = await this.messageRepository.save({
+      userId: user.userId,
+      text: message.text,
+      username: message.username,
+    });
+    await this.channelMessageRepository.save({
+      messageId: newMessage.messageId,
+      channelId: channel.channelId,
+    });
+    message.messageId = newMessage.messageId;
+    await this.messagesQueue.add('transcode', {
+      message,
+    });
+    return newMessage;
+  }
+
+  /** The channel with its messages, for a member of its workspace only. */
+  async getForMember(channelId: number, user: Caller) {
+    await this.getAccessible(channelId, user);
     return await this.repository.findOne({
-      where: whereOptions,
+      where: { channelId: Number(channelId) },
       relations: ['channelMessages', 'channelMessages.message'],
     });
   }

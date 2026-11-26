@@ -8,12 +8,14 @@ import { HeaderMiddleware } from 'src/common/middleware/headerParams.middleware'
 import { MessageModule } from 'src/message/message.module';
 import { ChannelMessage } from './models/channelMessage.model';
 import { BullModule } from '@nestjs/bull';
+import { WorkspaceModule } from 'src/workspace/workspace.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Channel, ChannelMessage]),
     AuthModule,
     MessageModule,
+    WorkspaceModule,
     BullModule.registerQueue({
       name: 'messages',
     }),

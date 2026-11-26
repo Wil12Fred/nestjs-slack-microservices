@@ -51,16 +51,9 @@ export class ChannelController {
     @AuthUser() user: any,
   ) {
     try {
-      const channel = await this.channelService.filter(
-        user.accountId,
-        channelId,
-        {
-          userId: user.userId,
-        },
-      );
-      if (channel) return channel;
-      throw new Error('User Forbidden');
+      return await this.channelService.getForMember(channelId, user);
     } catch (error) {
+      if (error instanceof HttpException) throw error;
       throw new HttpException(
         {
           status: 404,
@@ -78,16 +71,23 @@ export class ChannelController {
   @ApiResponse({ status: 404, description: 'Forbidden.' })
   async createMessage(
     @Res() res: Response,
+    @Param('channelId', ParseIntPipe) channelId: number,
     @Body() body: CreateChannelMessageDTO,
+    @AuthUser() user: any,
   ) {
     try {
-      const messageCreated = await this.channelService.createMessage(body);
+      // the route's channelId, never one supplied in the body
+      const messageCreated = await this.channelService.createMessage(
+        { ...body, channelId },
+        user,
+      );
       return res.status(HttpStatus.OK).json({
         status: 201,
         message: 'Se creó correctamente el mensaje',
         messageCreated,
       });
     } catch (error) {
+      if (error instanceof HttpException) throw error;
       throw new HttpException(
         {
           status: 404,
@@ -103,15 +103,20 @@ export class ChannelController {
   @ApiBody({ type: CreateChannelDTO })
   @ApiCreatedResponse({ description: 'Channel created' })
   @ApiResponse({ status: 404, description: 'Forbidden.' })
-  async create(@Res() res: Response, @Body() body: CreateChannelDTO) {
+  async create(
+    @Res() res: Response,
+    @Body() body: CreateChannelDTO,
+    @AuthUser() user: any,
+  ) {
     try {
-      const channelCreated = await this.channelService.createOne(body);
+      const channelCreated = await this.channelService.createOne(body, user);
       return res.status(HttpStatus.OK).json({
         status: 201,
         message: 'Se creó correctamente la cuenta',
         channelCreated,
       });
     } catch (error) {
+      if (error instanceof HttpException) throw error;
       throw new HttpException(
         {
           status: 404,
