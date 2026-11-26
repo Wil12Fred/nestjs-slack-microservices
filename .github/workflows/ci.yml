@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+jobs:
+  build:
+    name: ${{ matrix.package }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - BACKEND/ms_auth
+          - BACKEND/ms_admin
+          - BACKEND/ms_socket
+          - FRONTEND/react_slack
+    defaults:
+      run:
+        working-directory: ${{ matrix.package }}
+    env:
+      CI: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ${{ matrix.package }}/package-lock.json
+
+      - run: npm ci
+
+      - name: Lint
+        run: |
+          if [ -f nest-cli.json ]; then
+            npx eslint "{src,apps,libs,test}/**/*.ts"
+          else
+            npx eslint --ext .ts,.tsx src
+          fi
+
+      - run: npm run build
+
+      - name: Test
+        run: |
+          if [ -f nest-cli.json ]; then
+            npm test
+          else
+            npm test -- --watchAll=false
+          fi
