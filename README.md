@@ -1,4 +1,6 @@
-# Slack clone: NestJS microservices + React
+# nestjs-slack-microservices
+
+> Slack clone: NestJS microservices + React
 
 A small Slack-style chat: **accounts** (tenants) contain **users**, users
 create **workspaces**, workspaces contain **channels**, and messages posted to a
