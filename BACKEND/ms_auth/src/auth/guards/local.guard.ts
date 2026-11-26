@@ -6,7 +6,6 @@ export class UserLocalAuthGuardToken extends AuthGuard('user-local') {
   async canActivate(context: ExecutionContext) {
     const activate = (await super.canActivate(context)) as boolean;
     const request = context.switchToHttp().getRequest();
-    console.log(request.body);
     await super.logIn(request);
     return activate;
   }
