@@ -1,2 +1,13 @@
+# OS / editors
 *.DS_Store
 *.swp
+
+# Dependencies and build output (every package)
+node_modules/
+dist/
+build/
+coverage/
+
+# Local environment files; commit only .env.example
+.env
+*.env
