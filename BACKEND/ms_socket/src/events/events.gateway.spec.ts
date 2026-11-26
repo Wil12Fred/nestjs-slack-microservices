@@ -153,8 +153,8 @@ describe('EventsGateway', () => {
 
       answer(response(USER));
       await connecting;
-      await registering;
-      expect(client.data.user).toEqual(USER);
+      await expect(registering).resolves.toEqual({ OK: true });
+      expect(raw.join).toHaveBeenCalledWith('5');
     });
   });
 });
