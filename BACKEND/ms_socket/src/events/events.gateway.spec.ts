@@ -4,9 +4,11 @@ import { Test } from '@nestjs/testing';
 import { AxiosError, AxiosHeaders, AxiosResponse } from 'axios';
 import { from, of, throwError } from 'rxjs';
 import { AuthProvider } from 'src/auth/auth.provider';
+import { AdminProvider } from 'src/admin/admin.provider';
 import { ClientSocket, EventsGateway } from './events.gateway';
 
 const AUTH_HOST = 'http://auth.test';
+const ADMIN_HOST = 'http://admin.test';
 const TOKEN = 'Bearer valid.jwt.token';
 const USER = { userId: 1, accountId: 3, username: 'ana' };
 
@@ -57,12 +59,14 @@ describe('EventsGateway', () => {
       providers: [
         EventsGateway,
         AuthProvider,
+        AdminProvider,
         { provide: HttpService, useValue: http },
         {
           provide: ConfigService,
           useValue: {
             getOrThrow: (key: string) => {
               if (key === 'app.authHost') return AUTH_HOST;
+              if (key === 'app.adminHost') return ADMIN_HOST;
               throw new Error(`unexpected config key ${key}`);
             },
           },
@@ -130,6 +134,82 @@ describe('EventsGateway', () => {
   });
 
   describe('register', () => {
+    /** Connects a client ms_auth accepts, then routes ms_admin calls to `admin`. */
+    async function connectedMember(admin: () => unknown) {
+      http.get.mockReturnValue(of(response(USER)));
+      const fake = fakeClient(TOKEN);
+      await gateway.handleConnection(fake.client);
+      http.get.mockReset();
+      http.get.mockImplementation(admin);
+      return fake;
+    }
+
+    it('joins the channel room when ms_admin answers 200 for this user', async () => {
+      const { client, raw, roomEmit } = await connectedMember(() =>
+        of(response({ channelId: 5, workspaceId: 2 })),
+      );
+
+      await expect(gateway.registerRoom('5', client)).resolves.toEqual({
+        OK: true,
+      });
+      expect(http.get).toHaveBeenCalledWith(
+        `${ADMIN_HOST}/api/channel/5`,
+        expect.objectContaining({ headers: { Authorization: TOKEN } }),
+      );
+      expect(raw.join).toHaveBeenCalledWith('5');
+      // the join notice goes to that room only, never to every socket
+      expect(raw.to).toHaveBeenCalledWith('5');
+      expect(roomEmit).toHaveBeenCalledWith(
+        'notification',
+        expect.stringContaining('5'),
+      );
+      expect(gateway.server.emit).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      [403, 'not a member of the workspace'],
+      [404, 'no such channel'],
+      [401, 'token no longer valid'],
+      [500, 'ms_admin failed'],
+    ])(
+      'refuses the room when ms_admin answers %i (%s)',
+      async (status: number) => {
+        const { client, raw } = await connectedMember(() =>
+          of(response({ message: 'no' }, status)),
+        );
+
+        await expect(gateway.registerRoom(5, client)).resolves.toEqual({
+          OK: false,
+        });
+        expect(raw.join).not.toHaveBeenCalled();
+      },
+    );
+
+    it('refuses the room when ms_admin cannot be reached', async () => {
+      const { client, raw } = await connectedMember(() =>
+        throwError(() => new Error('connect ECONNREFUSED 127.0.0.1:3002')),
+      );
+
+      await expect(gateway.registerRoom(5, client)).resolves.toEqual({
+        OK: false,
+      });
+      expect(raw.join).not.toHaveBeenCalled();
+    });
+
+    it('refuses a room name that is not a channel id, without asking ms_admin', async () => {
+      const { client, raw } = await connectedMember(() =>
+        of(response({}, 200)),
+      );
+
+      for (const room of ['../workspace/1', '5?x=1', '', null]) {
+        await expect(
+          gateway.registerRoom(room as never, client),
+        ).resolves.toEqual({ OK: false });
+      }
+      expect(http.get).not.toHaveBeenCalled();
+      expect(raw.join).not.toHaveBeenCalled();
+    });
+
     it('refuses a client whose token was rejected, and joins nothing', async () => {
       http.get.mockReturnValue(throwError(() => httpError(401)));
       const { client, raw } = fakeClient('Bearer forged.jwt');
@@ -151,6 +231,7 @@ describe('EventsGateway', () => {
       const registering = gateway.registerRoom(5, client);
       expect(raw.join).not.toHaveBeenCalled();
 
+      http.get.mockReturnValue(of(response({ channelId: 5 })));
       answer(response(USER));
       await connecting;
       await expect(registering).resolves.toEqual({ OK: true });

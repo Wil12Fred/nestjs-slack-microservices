@@ -45,6 +45,11 @@ class EnvironmentVariablesValidator {
   @IsUrl({ require_tld: false, require_protocol: true })
   AUTH_HOST: string;
 
+  // Base URL of ms_admin. Before a socket joins a channel room, the client's
+  // own token is sent to ${ADMIN_HOST}/api/channel/<id>; only a 200 lets it in.
+  @IsUrl({ require_tld: false, require_protocol: true })
+  ADMIN_HOST: string;
+
   @IsString()
   @IsOptional()
   APP_FALLBACK_LANGUAGE: string;
@@ -70,6 +75,7 @@ export default registerAs<AppConfig>('app', () => {
         : 3000,
     apiPrefix: process.env.API_PREFIX || 'api',
     authHost: process.env.AUTH_HOST?.replace(/\/+$/, ''),
+    adminHost: process.env.ADMIN_HOST?.replace(/\/+$/, ''),
     fallbackLanguage: process.env.APP_FALLBACK_LANGUAGE || 'en',
     headerLanguage: process.env.APP_HEADER_LANGUAGE || 'x-custom-lang',
   };

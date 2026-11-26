@@ -10,6 +10,7 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { AuthProvider, AuthUser } from 'src/auth/auth.provider';
+import { AdminProvider } from 'src/admin/admin.provider';
 
 /** What a connection carries once handleConnection has started. */
 export interface ClientData {
@@ -28,12 +29,17 @@ export interface ClientData {
 export type ClientSocket = Socket<any, any, any, ClientData>;
 
 const BEARER = /^Bearer\s+\S+$/;
+/** Room names are channel ids; anything else never reaches ms_admin. */
+const CHANNEL_ID = /^\d+$/;
 
 @WebSocketGateway({ cors: true })
 export class EventsGateway implements OnGatewayInit, OnGatewayConnection {
   private readonly logger = new Logger(EventsGateway.name);
 
-  constructor(private readonly authProvider: AuthProvider) {}
+  constructor(
+    private readonly authProvider: AuthProvider,
+    private readonly adminProvider: AdminProvider,
+  ) {}
 
   @WebSocketServer()
   server: Server;
@@ -71,19 +77,38 @@ export class EventsGateway implements OnGatewayInit, OnGatewayConnection {
     }
   }
 
+  /**
+   * Joins the room named after a channel id, but only if ms_admin confirms
+   * the user may see that channel (i.e. is a member of its workspace).
+   */
   @SubscribeMessage('register')
   async registerRoom(
-    @MessageBody() room: number,
+    @MessageBody() room: number | string,
     @ConnectedSocket() client: ClientSocket,
   ) {
     const user = await client.data.auth;
-    if (!user) {
+    if (!user || !client.data.authorization) {
       return { OK: false };
     }
-    this.server.emit('notification', `new client joined the room ${room}`);
-    await client.join(`${room}`);
-    return {
-      OK: true,
-    };
+    const channelId = String(room ?? '');
+    if (!CHANNEL_ID.test(channelId)) {
+      return { OK: false };
+    }
+    const allowed = await this.adminProvider.canAccessChannel(
+      client.data.authorization,
+      channelId,
+    );
+    if (!allowed) {
+      this.logger.warn(
+        `socket ${client.id}: user ${user.userId} refused room ${channelId}`,
+      );
+      return { OK: false };
+    }
+    await client.join(channelId);
+    // only the room hears who joined it, not every connected client
+    client
+      .to(channelId)
+      .emit('notification', `new client joined the room ${channelId}`);
+    return { OK: true };
   }
 }

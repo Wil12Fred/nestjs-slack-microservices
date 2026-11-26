@@ -7,6 +7,7 @@ export type AppConfig = {
   port: number;
   apiPrefix: string;
   authHost: string;
+  adminHost: string;
 };
 
 export type AllConfigType = {
