@@ -1,12 +1,11 @@
 import { accountStatus } from '../enums/account-status.enum';
 import { accountType } from '../enums/account-type.enum';
-import { IsInt, IsString } from 'class-validator';
+import { IsString } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
+// no accountId: the database assigns it, and requiring one made every
+// POST /api/accounts fail validation
 export class CreateAccountsDTO {
-  @IsInt()
-  accountId: number;
-
   @IsString()
   @ApiProperty({
     type: String,
