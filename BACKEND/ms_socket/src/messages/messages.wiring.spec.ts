@@ -26,6 +26,7 @@ describe('EventsGateway wiring (AppModule)', () => {
   let handleConnection: jest.SpyInstance;
 
   beforeAll(async () => {
+    process.env.AUTH_HOST = 'http://auth.test';
     handleConnection = jest
       .spyOn(EventsGateway.prototype, 'handleConnection')
       .mockResolvedValue(undefined);

@@ -40,6 +40,11 @@ class EnvironmentVariablesValidator {
   @IsOptional()
   API_PREFIX: string;
 
+  // Base URL of ms_auth. Every socket's bearer token is validated against
+  // ${AUTH_HOST}/api/auth/login; without it no client can connect.
+  @IsUrl({ require_tld: false, require_protocol: true })
+  AUTH_HOST: string;
+
   @IsString()
   @IsOptional()
   APP_FALLBACK_LANGUAGE: string;
@@ -64,6 +69,7 @@ export default registerAs<AppConfig>('app', () => {
         ? parseInt(process.env.PORT, 10)
         : 3000,
     apiPrefix: process.env.API_PREFIX || 'api',
+    authHost: process.env.AUTH_HOST?.replace(/\/+$/, ''),
     fallbackLanguage: process.env.APP_FALLBACK_LANGUAGE || 'en',
     headerLanguage: process.env.APP_HEADER_LANGUAGE || 'x-custom-lang',
   };

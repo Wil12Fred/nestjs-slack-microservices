@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { EventsGateway } from './events.gateway';
 import { RedisModule } from 'src/redis/redis.module';
+import { AuthModule } from 'src/auth/auth.module';
 
 /**
  * Owns the one EventsGateway instance. Anything that needs to emit to the
@@ -9,7 +10,7 @@ import { RedisModule } from 'src/redis/redis.module';
  * gateway bound to the same server and run every connection handler twice.
  */
 @Module({
-  imports: [RedisModule],
+  imports: [RedisModule, AuthModule],
   providers: [EventsGateway],
   exports: [EventsGateway],
 })

@@ -6,6 +6,7 @@ export type AppConfig = {
   backendDomain: string;
   port: number;
   apiPrefix: string;
+  authHost: string;
 };
 
 export type AllConfigType = {
