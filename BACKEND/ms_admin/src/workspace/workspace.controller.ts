@@ -71,16 +71,9 @@ export class WorkspaceController {
     @AuthUser() user: any,
   ) {
     try {
-      const workspace = await this.workspaceService.filter(
-        user.accountId,
-        workspaceId,
-        {
-          userId: user.userId,
-        },
-      );
-      if (workspace) return workspace;
-      throw new Error('Workspace Forbidden');
+      return await this.workspaceService.getForMember(user.userId, workspaceId);
     } catch (error) {
+      if (error instanceof HttpException) throw error;
       throw new HttpException(
         {
           status: 404,
@@ -131,12 +124,17 @@ export class WorkspaceController {
   @UseInterceptors(new UserAuthInterceptor())
   async addUserWorkspace(
     @Res() res: Response,
+    @Param('workspaceId', ParseIntPipe) workspaceId: number,
     @Body() body: CreateUserWorkspaceDTO,
     @AuthUser() user: any,
   ) {
     try {
+      // the route's workspaceId, never one supplied in the body
       const userWorkspaceCreated =
-        await this.workspaceService.addUserToWorkspace(body, user);
+        await this.workspaceService.addUserToWorkspace(
+          { ...body, workspaceId },
+          user,
+        );
       return res.status(HttpStatus.OK).json({
         status: 201,
         message:
@@ -144,6 +142,7 @@ export class WorkspaceController {
         userWorkspaceCreated,
       });
     } catch (error) {
+      if (error instanceof HttpException) throw error;
       throw new HttpException(
         {
           status: 404,

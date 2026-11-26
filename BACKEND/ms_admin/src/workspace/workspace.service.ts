@@ -1,6 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Workspace } from './models/workspace.model';
-import { FindOptionsWhere, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { UserWorkspace } from './models/userWorkspace.model';
 
@@ -26,19 +30,49 @@ export class WorkspaceService {
     }
   }
 
-  async addUserToWorkspace(
-    userWorkspace: any,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _user: any,
-  ): Promise<UserWorkspace> {
-    try {
-      return await this.userWorkspaceRepository.save({
-        userId: userWorkspace.invitedUserId,
-        workspaceId: userWorkspace.workspaceId,
-      });
-    } catch (error) {
-      throw error;
+  /**
+   * THE membership rule, in one place: a user may see or act on a workspace
+   * (and its channels) only if a user_workspaces row links them.
+   */
+  async isMember(userId: number, workspaceId: number): Promise<boolean> {
+    if (!Number.isInteger(userId) || !Number.isInteger(workspaceId)) {
+      return false;
     }
+    const rows = await this.userWorkspaceRepository.count({
+      where: { userId, workspaceId },
+    });
+    return rows > 0;
+  }
+
+  /** Throws 403 unless `userId` is a member of `workspaceId`. */
+  async assertMember(userId: number, workspaceId: number): Promise<void> {
+    if (!(await this.isMember(Number(userId), Number(workspaceId)))) {
+      throw new ForbiddenException('Not a member of this workspace');
+    }
+  }
+
+  /**
+   * Adds `invitedUserId` to the workspace. Only a member may invite, and
+   * inviting someone who is already a member returns their existing row
+   * instead of creating a duplicate.
+   */
+  async addUserToWorkspace(
+    userWorkspace: { workspaceId: number; invitedUserId: number },
+    user: { userId: number },
+  ): Promise<UserWorkspace> {
+    const workspaceId = Number(userWorkspace.workspaceId);
+    const invitedUserId = Number(userWorkspace.invitedUserId);
+    await this.assertMember(user.userId, workspaceId);
+    const existing = await this.userWorkspaceRepository.findOne({
+      where: { userId: invitedUserId, workspaceId },
+    });
+    if (existing) {
+      return existing;
+    }
+    return await this.userWorkspaceRepository.save({
+      userId: invitedUserId,
+      workspaceId,
+    });
   }
 
   async getOne(workspaceId: number) {
@@ -48,9 +82,6 @@ export class WorkspaceService {
     });
   }
 
-  // TODO: userId is not applied yet, so this returns every workspace,
-  // not only the ones the caller belongs to.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async getAll(userId: number) {
     const userWorkspaces = await this.userWorkspaceRepository.find({
       where: {
@@ -61,17 +92,16 @@ export class WorkspaceService {
     return userWorkspaces.map((userWorkspace) => userWorkspace.workspace);
   }
 
-  async filter(accountId: number, workspaceId: number, params: any) {
-    const whereOptions: FindOptionsWhere<Workspace> = {
-      workspaceId,
-      accountId,
-    };
-    if (params) {
-      console.log(params);
+  /**
+   * The workspace with its channels, for a member only: 403 for anyone else,
+   * 404 if the membership row points at a workspace that no longer exists.
+   */
+  async getForMember(userId: number, workspaceId: number): Promise<Workspace> {
+    await this.assertMember(userId, workspaceId);
+    const workspace = await this.getOne(workspaceId);
+    if (!workspace) {
+      throw new NotFoundException('Workspace not found');
     }
-    return await this.repository.findOne({
-      where: whereOptions,
-      relations: ['channels'],
-    });
+    return workspace;
   }
 }
