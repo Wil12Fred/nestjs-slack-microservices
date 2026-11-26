@@ -38,6 +38,7 @@
     "start": "concurrently \"react-scripts start\" \"npm run watch:css\"",
     "build": "react-scripts build && npm run build:css",
     "test": "react-scripts test",
+    "lint": "eslint --ext .ts,.tsx src",
     "eject": "react-scripts eject",
     "build:css": "postcss src/index.css -o src/tailwind.css",
     "watch:css": "postcss src/index.css -o src/tailwind.css --watch"
