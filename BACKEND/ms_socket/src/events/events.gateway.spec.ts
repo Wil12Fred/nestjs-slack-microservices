@@ -133,6 +133,87 @@ describe('EventsGateway', () => {
     });
   });
 
+  describe('token expiry', () => {
+    const NOW = new Date('2030-01-01T00:00:00Z').getTime();
+    const inSeconds = (s: number) => Math.floor(NOW / 1000) + s;
+
+    beforeEach(() => {
+      jest.useFakeTimers({
+        now: NOW,
+        doNotFake: ['nextTick', 'queueMicrotask'],
+      });
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    async function connect(exp?: number) {
+      http.get.mockReturnValue(of(response({ ...USER, exp })));
+      const fake = fakeClient(TOKEN);
+      await gateway.handleConnection(fake.client);
+      return fake;
+    }
+
+    it('disconnects the socket (leaving its rooms) when the token expires', async () => {
+      const { raw } = await connect(inSeconds(60));
+      expect(raw.disconnect).not.toHaveBeenCalled();
+
+      jest.advanceTimersByTime(59_000);
+      expect(raw.disconnect).not.toHaveBeenCalled();
+
+      jest.advanceTimersByTime(1_000);
+      expect(raw.disconnect).toHaveBeenCalledWith(true);
+    });
+
+    it('handles an expiry further away than setTimeout can wait', async () => {
+      const days = 40;
+      const { raw } = await connect(inSeconds(days * 24 * 3600));
+
+      jest.advanceTimersByTime((days * 24 * 3600 - 1) * 1000);
+      expect(raw.disconnect).not.toHaveBeenCalled();
+      jest.advanceTimersByTime(1_000);
+      expect(raw.disconnect).toHaveBeenCalledTimes(1);
+    });
+
+    it('stops the timer when the socket disconnects first', async () => {
+      const { client, raw } = await connect(inSeconds(60));
+
+      gateway.handleDisconnect(client);
+      jest.advanceTimersByTime(120_000);
+
+      expect(raw.disconnect).not.toHaveBeenCalled();
+      expect(jest.getTimerCount()).toBe(0);
+    });
+
+    it('disconnects at once a token whose exp has already passed', async () => {
+      const { client, raw } = await connect(inSeconds(-1));
+
+      expect(raw.disconnect).toHaveBeenCalledWith(true);
+      expect(client.data.user).toBeUndefined();
+    });
+
+    it('refuses register once the token has expired, without asking ms_admin', async () => {
+      const { client, raw } = await connect(inSeconds(60));
+      http.get.mockReset();
+      // the clock passes exp before the timer has had a chance to run
+      jest.setSystemTime(NOW + 61_000);
+
+      await expect(gateway.registerRoom(5, client)).resolves.toEqual({
+        OK: false,
+      });
+      expect(http.get).not.toHaveBeenCalled();
+      expect(raw.join).not.toHaveBeenCalled();
+      expect(raw.disconnect).toHaveBeenCalledWith(true);
+    });
+
+    it('sets no timer for a token without exp', async () => {
+      await connect(undefined);
+
+      expect(jest.getTimerCount()).toBe(0);
+    });
+  });
+
   describe('register', () => {
     /** Connects a client ms_auth accepts, then routes ms_admin calls to `admin`. */
     async function connectedMember(admin: () => unknown) {

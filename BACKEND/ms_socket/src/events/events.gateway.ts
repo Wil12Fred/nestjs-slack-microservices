@@ -6,6 +6,7 @@ import {
   WebSocketServer,
   ConnectedSocket,
   OnGatewayConnection,
+  OnGatewayDisconnect,
   OnGatewayInit,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
@@ -24,6 +25,8 @@ export interface ClientData {
   auth?: Promise<AuthUser | null>;
   /** The validated user; present only after ms_auth accepted the token. */
   user?: AuthUser;
+  /** Disconnects the socket when its token expires; cleared on disconnect. */
+  expiryTimer?: ReturnType<typeof setTimeout>;
 }
 
 export type ClientSocket = Socket<any, any, any, ClientData>;
@@ -31,9 +34,18 @@ export type ClientSocket = Socket<any, any, any, ClientData>;
 const BEARER = /^Bearer\s+\S+$/;
 /** Room names are channel ids; anything else never reaches ms_admin. */
 const CHANNEL_ID = /^\d+$/;
+/** setTimeout's largest delay; a longer one fires immediately. */
+const MAX_TIMEOUT_MS = 2 ** 31 - 1;
+
+/** True when the token's `exp` (seconds) is not in the future. */
+function isExpired(user: AuthUser): boolean {
+  return typeof user.exp === 'number' && user.exp * 1000 <= Date.now();
+}
 
 @WebSocketGateway({ cors: true })
-export class EventsGateway implements OnGatewayInit, OnGatewayConnection {
+export class EventsGateway
+  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
+{
   private readonly logger = new Logger(EventsGateway.name);
 
   constructor(
@@ -65,8 +77,12 @@ export class EventsGateway implements OnGatewayInit, OnGatewayConnection {
     }
     try {
       const user = await this.authProvider.validateToken(authorization);
+      if (isExpired(user)) {
+        throw new Error('token already expired');
+      }
       client.data.authorization = authorization;
       client.data.user = user;
+      this.disconnectAtExpiry(client, user);
       return user;
     } catch (error) {
       this.logger.warn(
@@ -75,6 +91,35 @@ export class EventsGateway implements OnGatewayInit, OnGatewayConnection {
       client.disconnect(true);
       return null;
     }
+  }
+
+  /**
+   * A socket's rooms last only as long as its token: when `exp` passes, the
+   * socket is disconnected, and Socket.IO drops it from every room. Without
+   * this, a joined socket kept receiving a channel's messages after its token
+   * expired, for as long as the connection stayed open.
+   */
+  private disconnectAtExpiry(client: ClientSocket, user: AuthUser) {
+    if (typeof user.exp !== 'number') {
+      return;
+    }
+    const delay = user.exp * 1000 - Date.now();
+    client.data.expiryTimer = setTimeout(
+      () => {
+        if (isExpired(user)) {
+          this.logger.warn(`socket ${client.id}: token expired, disconnecting`);
+          client.disconnect(true);
+        } else {
+          this.disconnectAtExpiry(client, user);
+        }
+      },
+      Math.min(Math.max(delay, 0), MAX_TIMEOUT_MS),
+    );
+  }
+
+  handleDisconnect(client: ClientSocket) {
+    clearTimeout(client.data?.expiryTimer);
+    client.data.expiryTimer = undefined;
   }
 
   /**
@@ -88,6 +133,10 @@ export class EventsGateway implements OnGatewayInit, OnGatewayConnection {
   ) {
     const user = await client.data.auth;
     if (!user || !client.data.authorization) {
+      return { OK: false };
+    }
+    if (isExpired(user)) {
+      client.disconnect(true);
       return { OK: false };
     }
     const channelId = String(room ?? '');

@@ -10,6 +10,8 @@ export interface AuthUser {
   accountId?: number;
   username?: string;
   email?: string;
+  /** JWT expiry, seconds since the epoch, as ms_auth's payload carries it. */
+  exp?: number;
 }
 
 /**
