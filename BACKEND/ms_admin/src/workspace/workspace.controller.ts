@@ -1,7 +1,6 @@
 import {
   Controller,
   HttpStatus,
-  HttpException,
   Post,
   Res,
   Body,
@@ -10,6 +9,7 @@ import {
   Param,
   ParseIntPipe,
   HttpCode,
+  Headers,
   UseInterceptors,
 } from '@nestjs/common';
 import { WorkspaceService } from './workspace.service';
@@ -29,6 +29,7 @@ import {
   UserAuthInterceptor,
 } from 'src/common/interceptor/context.interceptor';
 import { AuthUser } from 'src/utils/decorators/auth-user-decorators';
+import { rethrowAsHttp } from 'src/utils/http-errors';
 import { CreateUserWorkspaceDTO } from './dto/createUserWorkspace.dto';
 
 @ApiBearerAuth()
@@ -48,15 +49,9 @@ export class WorkspaceController {
   @UseInterceptors(new UserAuthInterceptor())
   async getAll(@AuthUser() user: any) {
     try {
-      return await this.workspaceService.getAll(user.userId);
+      return await this.workspaceService.getAll(user);
     } catch (error) {
-      throw new HttpException(
-        {
-          status: 404,
-          error: 'La espacio de trabajo es inválido' + error.message,
-        },
-        HttpStatus.FORBIDDEN,
-      );
+      rethrowAsHttp(error, 'La espacio de trabajo es inválido');
     }
   }
 
@@ -71,16 +66,9 @@ export class WorkspaceController {
     @AuthUser() user: any,
   ) {
     try {
-      return await this.workspaceService.getForMember(user.userId, workspaceId);
+      return await this.workspaceService.getForMember(user, workspaceId);
     } catch (error) {
-      if (error instanceof HttpException) throw error;
-      throw new HttpException(
-        {
-          status: 404,
-          error: 'El espacio de trabajo es inválido' + error.message,
-        },
-        HttpStatus.FORBIDDEN,
-      );
+      rethrowAsHttp(error, 'El espacio de trabajo es inválido');
     }
   }
 
@@ -106,13 +94,7 @@ export class WorkspaceController {
         workspaceCreated,
       });
     } catch (error) {
-      throw new HttpException(
-        {
-          status: 404,
-          error: 'El espacio de trabajo es inválido' + error.message,
-        },
-        HttpStatus.FORBIDDEN,
-      );
+      rethrowAsHttp(error, 'El espacio de trabajo es inválido');
     }
   }
 
@@ -127,6 +109,7 @@ export class WorkspaceController {
     @Param('workspaceId', ParseIntPipe) workspaceId: number,
     @Body() body: CreateUserWorkspaceDTO,
     @AuthUser() user: any,
+    @Headers('authorization') authorization: string,
   ) {
     try {
       // the route's workspaceId, never one supplied in the body
@@ -134,6 +117,7 @@ export class WorkspaceController {
         await this.workspaceService.addUserToWorkspace(
           { ...body, workspaceId },
           user,
+          authorization,
         );
       return res.status(HttpStatus.OK).json({
         status: 201,
@@ -142,14 +126,7 @@ export class WorkspaceController {
         userWorkspaceCreated,
       });
     } catch (error) {
-      if (error instanceof HttpException) throw error;
-      throw new HttpException(
-        {
-          status: 404,
-          error: 'El espacio de trabajo es inválido' + error.message,
-        },
-        HttpStatus.FORBIDDEN,
-      );
+      rethrowAsHttp(error, 'El espacio de trabajo es inválido');
     }
   }
 }

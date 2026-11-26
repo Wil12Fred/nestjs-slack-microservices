@@ -8,12 +8,7 @@ import { CreateChannelDTO } from './dto/createChannel.dto';
 import { Message } from 'src/message/models/message.model';
 import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bull';
-import { WorkspaceService } from 'src/workspace/workspace.service';
-
-/** The caller, as ApiGuard put it on the request from ms_auth's answer. */
-interface Caller {
-  userId: number;
-}
+import { Caller, WorkspaceService } from 'src/workspace/workspace.service';
 
 /**
  * A channel belongs to exactly one workspace (Channel.workspaceId), so access
@@ -34,7 +29,7 @@ export class ChannelService {
 
   /** Creates a channel in a workspace the caller is a member of (else 403). */
   async createOne(channel: CreateChannelDTO, user: Caller): Promise<Channel> {
-    await this.workspaceService.assertMember(user.userId, channel.workspaceId);
+    await this.workspaceService.assertMember(user, channel.workspaceId);
     return await this.repository.save({
       workspaceId: Number(channel.workspaceId),
       name: channel.name,
@@ -54,7 +49,7 @@ export class ChannelService {
     if (!channel) {
       throw new NotFoundException('Channel not found');
     }
-    await this.workspaceService.assertMember(user.userId, channel.workspaceId);
+    await this.workspaceService.assertMember(user, channel.workspaceId);
     return channel;
   }
 

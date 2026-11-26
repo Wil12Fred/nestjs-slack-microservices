@@ -92,14 +92,39 @@ describe('channel authorization (HTTP)', () => {
       expect(ctx.queue.add).not.toHaveBeenCalled();
     });
 
-    it('reports a storage failure as an error, never as success', async () => {
+    it('answers 500, not 403, when storing the message fails', async () => {
       ctx.messages.save.mockRejectedValueOnce(new Error('db down'));
 
       const res = await post(AS_MEMBER, 100);
 
-      expect(res.status).toBeGreaterThanOrEqual(400);
+      expect(res.status).toBe(500);
       expect(res.body.messageCreated).toBeUndefined();
       expect(ctx.queue.add).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("a channel of another account's workspace", () => {
+    it('is refused even to a member of that workspace', async () => {
+      await request(server())
+        .get('/api/channel/200')
+        .set('Authorization', AS_MEMBER)
+        .set('account', '2')
+        .expect(403);
+      await request(server())
+        .post('/api/channel/200/message')
+        .set('Authorization', AS_MEMBER)
+        .set('account', '2')
+        .send({ text: 'hello' })
+        .expect(403);
+      await request(server())
+        .post('/api/channel')
+        .set('Authorization', AS_MEMBER)
+        .set('account', '2')
+        .send({ workspaceId: 20, name: 'sneaky' })
+        .expect(403);
+
+      expect(ctx.messages.save).not.toHaveBeenCalled();
+      expect(ctx.channels.save).not.toHaveBeenCalled();
     });
   });
 
@@ -131,12 +156,12 @@ describe('channel authorization (HTTP)', () => {
       expect(ctx.channels.save).not.toHaveBeenCalled();
     });
 
-    it('reports a storage failure as an error, never as success', async () => {
+    it('answers 500, not 403, when storing the channel fails', async () => {
       ctx.channels.save.mockRejectedValueOnce(new Error('db down'));
 
       const res = await create(AS_MEMBER, { workspaceId: 10, name: 'x' });
 
-      expect(res.status).toBeGreaterThanOrEqual(400);
+      expect(res.status).toBe(500);
       expect(res.body.channelCreated).toBeUndefined();
     });
   });

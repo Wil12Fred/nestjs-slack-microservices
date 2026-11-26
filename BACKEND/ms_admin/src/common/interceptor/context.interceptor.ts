@@ -16,6 +16,9 @@ export class UserAuthInterceptor implements NestInterceptor {
     if (request.user) {
       request.body.userId = request.user.userId;
       request.body.username = request.user.username;
+      // the account is the token's, never the client-supplied `account`
+      // header: it scopes which workspaces the caller may see
+      request.body.accountId = request.user.accountId;
     }
     return next.handle();
   }

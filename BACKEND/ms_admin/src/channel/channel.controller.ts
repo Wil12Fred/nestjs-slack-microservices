@@ -1,7 +1,6 @@
 import {
   Controller,
   HttpStatus,
-  HttpException,
   Post,
   Res,
   Body,
@@ -28,6 +27,7 @@ import {
   ChannelParamInterceptor,
 } from 'src/common/interceptor/context.interceptor';
 import { AuthUser } from 'src/utils/decorators/auth-user-decorators';
+import { rethrowAsHttp } from 'src/utils/http-errors';
 import { CreateChannelDTO } from './dto/createChannel.dto';
 import { CreateChannelMessageDTO } from './dto/createChannelMessage.dto';
 
@@ -53,14 +53,7 @@ export class ChannelController {
     try {
       return await this.channelService.getForMember(channelId, user);
     } catch (error) {
-      if (error instanceof HttpException) throw error;
-      throw new HttpException(
-        {
-          status: 404,
-          error: 'El espacio de trabajo es inválido' + error.message,
-        },
-        HttpStatus.FORBIDDEN,
-      );
+      rethrowAsHttp(error, 'El espacio de trabajo es inválido');
     }
   }
 
@@ -87,14 +80,7 @@ export class ChannelController {
         messageCreated,
       });
     } catch (error) {
-      if (error instanceof HttpException) throw error;
-      throw new HttpException(
-        {
-          status: 404,
-          error: 'El mensaje es inválido' + error.message,
-        },
-        HttpStatus.FORBIDDEN,
-      );
+      rethrowAsHttp(error, 'El mensaje es inválido');
     }
   }
 
@@ -116,14 +102,7 @@ export class ChannelController {
         channelCreated,
       });
     } catch (error) {
-      if (error instanceof HttpException) throw error;
-      throw new HttpException(
-        {
-          status: 404,
-          error: 'El canal es inválido' + error.message,
-        },
-        HttpStatus.FORBIDDEN,
-      );
+      rethrowAsHttp(error, 'El canal es inválido');
     }
   }
 }

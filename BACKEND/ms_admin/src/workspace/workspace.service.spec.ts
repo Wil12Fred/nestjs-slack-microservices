@@ -3,6 +3,7 @@ import { WorkspaceService } from './workspace.service';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Workspace } from './models/workspace.model';
 import { UserWorkspace } from './models/userWorkspace.model';
+import { AuthProvider } from '../auth/auth.provider';
 
 describe('WorkspaceService', () => {
   let service: WorkspaceService;
@@ -13,6 +14,7 @@ describe('WorkspaceService', () => {
         WorkspaceService,
         { provide: getRepositoryToken(Workspace), useValue: {} },
         { provide: getRepositoryToken(UserWorkspace), useValue: {} },
+        { provide: AuthProvider, useValue: {} },
       ],
     }).compile();
 

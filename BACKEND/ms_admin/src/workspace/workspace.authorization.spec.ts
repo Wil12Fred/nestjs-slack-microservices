@@ -2,6 +2,7 @@ import * as request from 'supertest';
 import {
   AS_MEMBER,
   AS_OUTSIDER,
+  FOREIGNER,
   INVITEE,
   MEMBER,
   MembershipApp,
@@ -76,7 +77,8 @@ describe('workspace authorization (HTTP)', () => {
       expect(ctx.userWorkspaces.find).toHaveBeenCalledWith(
         expect.objectContaining({ where: { userId: MEMBER.userId } }),
       );
-      expect(mine.body).toHaveLength(1);
+      // MEMBER's row in workspace 20 is ignored: it is in another account
+      expect(mine.body.map((w) => w.workspaceId)).toEqual([10]);
       expect(theirs.body).toEqual([]);
     });
   });
@@ -109,7 +111,7 @@ describe('workspace authorization (HTTP)', () => {
       }).expect(403);
 
       expect(ctx.userWorkspaces.save).not.toHaveBeenCalled();
-      expect(ctx.userWorkspaces.rows).toHaveLength(1);
+      expect(ctx.userWorkspaces.rows).toHaveLength(2);
     });
 
     it('uses the route workspaceId, not one smuggled in the body', async () => {
@@ -142,7 +144,118 @@ describe('workspace authorization (HTTP)', () => {
 
       expect(again.body.userWorkspaceCreated.userId).toBe(INVITEE.userId);
       expect(ctx.userWorkspaces.save).toHaveBeenCalledTimes(1);
-      expect(ctx.userWorkspaces.rows).toHaveLength(2);
+      expect(ctx.userWorkspaces.rows).toHaveLength(3);
+    });
+
+    it("asks ms_auth for the invitee with the caller's own token", async () => {
+      await invite(AS_MEMBER, 10, { invitedUserId: INVITEE.userId }).expect(
+        200,
+      );
+
+      expect(ctx.auth.getUser).toHaveBeenCalledWith(AS_MEMBER, INVITEE.userId);
+    });
+
+    it('answers 404 for an invitee ms_auth does not know, adding nothing', async () => {
+      const res = await invite(AS_MEMBER, 10, {
+        invitedUserId: 99999,
+      }).expect(404);
+
+      expect(res.body.userWorkspaceCreated).toBeUndefined();
+      expect(ctx.userWorkspaces.save).not.toHaveBeenCalled();
+    });
+
+    it('answers 404 for a user of another account (ms_auth hides them)', async () => {
+      await invite(AS_MEMBER, 10, {
+        invitedUserId: FOREIGNER.userId,
+      }).expect(404);
+
+      expect(ctx.userWorkspaces.save).not.toHaveBeenCalled();
+    });
+
+    it('checks membership first: a non-member learns nothing about the invitee', async () => {
+      await invite(AS_OUTSIDER, 10, { invitedUserId: 99999 }).expect(403);
+
+      expect(ctx.auth.getUser).not.toHaveBeenCalled();
+    });
+
+    it('answers 500, not 403, when ms_auth cannot be asked', async () => {
+      ctx.auth.getUser.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+
+      await invite(AS_MEMBER, 10, { invitedUserId: INVITEE.userId }).expect(
+        500,
+      );
+      expect(ctx.userWorkspaces.save).not.toHaveBeenCalled();
+    });
+
+    it('answers 500, not 403, when the membership write fails', async () => {
+      ctx.userWorkspaces.save.mockRejectedValueOnce(new Error('db down'));
+
+      const res = await invite(AS_MEMBER, 10, {
+        invitedUserId: INVITEE.userId,
+      });
+
+      expect(res.status).toBe(500);
+      expect(res.body.userWorkspaceCreated).toBeUndefined();
+    });
+  });
+
+  describe("the token's account, not the account header", () => {
+    it('stamps a new workspace with the account of the token', async () => {
+      await request(server())
+        .post('/api/workspace')
+        .set('Authorization', AS_MEMBER)
+        .set('account', '2')
+        .send({ name: 'mine', accountId: 2 })
+        .expect(200);
+      await request(server())
+        .post('/api/workspace')
+        .set('Authorization', AS_MEMBER)
+        .send({ name: 'no header' })
+        .expect(200);
+
+      expect(ctx.workspaces.save).toHaveBeenCalledTimes(2);
+      for (const [saved] of ctx.workspaces.save.mock.calls) {
+        expect(saved).toEqual({ name: expect.any(String), accountId: 1 });
+      }
+    });
+
+    it('hides a workspace of another account even from one of its members', async () => {
+      await request(server())
+        .get('/api/workspace/20')
+        .set('Authorization', AS_MEMBER)
+        .set('account', '2')
+        .expect(403);
+      await request(server())
+        .post('/api/workspace/20/user')
+        .set('Authorization', AS_MEMBER)
+        .set('account', '2')
+        .send({ invitedUserId: INVITEE.userId })
+        .expect(403);
+
+      expect(ctx.userWorkspaces.save).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('errors that are not 403/404', () => {
+    it('POST /api/workspace answers 500 when the insert fails', async () => {
+      ctx.workspaces.save.mockRejectedValueOnce(new Error('db down'));
+
+      const res = await request(server())
+        .post('/api/workspace')
+        .set('Authorization', AS_MEMBER)
+        .send({ name: 'x' });
+
+      expect(res.status).toBe(500);
+      expect(res.body.workspaceCreated).toBeUndefined();
+    });
+
+    it('GET /api/workspace answers 500 when the query fails', async () => {
+      ctx.userWorkspaces.find.mockRejectedValueOnce(new Error('db down'));
+
+      await request(server())
+        .get('/api/workspace')
+        .set('Authorization', AS_MEMBER)
+        .expect(500);
     });
   });
 });
