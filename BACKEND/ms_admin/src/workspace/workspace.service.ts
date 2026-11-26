@@ -33,6 +33,9 @@ export class WorkspaceService {
     });
   }
 
+  // TODO: userId is not applied yet, so this returns every workspace,
+  // not only the ones the caller belongs to.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async getAll(userId: number) {
     return await this.repository.find();
   }
