@@ -2,7 +2,6 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
   pull_request:
 
 jobs:
@@ -21,6 +20,7 @@ jobs:
       run:
         working-directory: ${{ matrix.package }}
     env:
+      # CRA: run tests once (no watch) and fail the build on warnings
       CI: true
     steps:
       - uses: actions/checkout@v4
@@ -32,21 +32,96 @@ jobs:
           cache-dependency-path: ${{ matrix.package }}/package-lock.json
 
       - run: npm ci
-
-      - name: Lint
-        run: |
-          if [ -f nest-cli.json ]; then
-            npx eslint "{src,apps,libs,test}/**/*.ts"
-          else
-            npx eslint --ext .ts,.tsx src
-          fi
-
+      - run: npm run lint
       - run: npm run build
+      - run: npm test
 
-      - name: Test
+  # Boots ms_auth and ms_admin against real MySQL and Redis and runs
+  # e2e/flow.mjs: sign-up, login, workspace, membership, messages.
+  e2e:
+    name: e2e (ms_auth + ms_admin on MySQL 8 + Redis)
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_USER: slack
+          MYSQL_PASSWORD: change-me
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -proot"
+          --health-interval 5s --health-timeout 5s --health-retries 30
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+    env:
+      # ms_auth
+      MYSQ_DB_HOST: 127.0.0.1
+      MYSQ_DB_PORT: 3306
+      MYSQ_DB_USERNAME: slack
+      MYSQ_DB_PASSWORD: change-me
+      MYSQ_DB_DATABASE: slack_auth
+      JWT_SECRET_KEY: ci-only-secret
+      JWT_EXPIRATION_TIME: 1h
+      # ms_admin
+      AUTH_HOST: http://127.0.0.1:3001
+      REDIS_HOST: 127.0.0.1
+      REDIS_PORT: 6379
+      TYPEORM_CONNECTION: mysql
+      TYPEORM_HOST: 127.0.0.1
+      TYPEORM_PORT: 3306
+      TYPEORM_DATABASE: slack_admin
+      TYPEORM_USERNAME: slack
+      TYPEORM_PASSWORD: change-me
+      TYPEORM_SYNCHRONIZE: true
+      TYPEORM_LOGGING: false
+      TYPEORM_ENTITIES: dist/**/*.model.js
+      TYPEORM_MIGRATIONS: dist/migrations/*.js
+      TYPEORM_MIGRATIONS_DIR: src/migrations
+      TYPEORM_MIGRATIONS_TABLE_NAME: migrations
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            BACKEND/ms_auth/package-lock.json
+            BACKEND/ms_admin/package-lock.json
+
+      - name: Create the databases
+        run: mysql -h 127.0.0.1 -uroot -proot < docker/mysql-init.sql
+
+      - name: Build ms_auth and ms_admin
         run: |
-          if [ -f nest-cli.json ]; then
-            npm test
-          else
-            npm test -- --watchAll=false
-          fi
+          for p in BACKEND/ms_auth BACKEND/ms_admin; do
+            (cd "$p" && npm ci && npm run build)
+          done
+
+      - name: Start ms_auth (:3001) and ms_admin (:3002)
+        run: |
+          (cd BACKEND/ms_auth && PORT=3001 nohup node dist/main.js > ../../ms_auth.log 2>&1 &)
+          (cd BACKEND/ms_admin && PORT=3002 nohup node dist/main.js > ../../ms_admin.log 2>&1 &)
+          for port in 3001 3002; do
+            for i in $(seq 1 60); do
+              curl -sf "http://127.0.0.1:$port/api" > /dev/null && break
+              sleep 1
+            done
+            curl -sf "http://127.0.0.1:$port/api" > /dev/null || { echo "port $port never answered"; exit 1; }
+          done
+
+      - name: Run the flow
+        run: node e2e/flow.mjs
+        env:
+          AUTH_URL: http://127.0.0.1:3001
+          ADMIN_URL: http://127.0.0.1:3002
+
+      - name: Service logs
+        if: always()
+        run: |
+          echo "::group::ms_auth"; cat ms_auth.log || true; echo "::endgroup::"
+          echo "::group::ms_admin"; cat ms_admin.log || true; echo "::endgroup::"
