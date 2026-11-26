@@ -15,18 +15,14 @@ export class AccountsService {
     type: string,
     status: string,
   ): Promise<Accounts> {
-    try {
-      const accountNew = await this.accounts.create({
-        name,
-        description,
-        type,
-        status,
-      });
-      return accountNew;
-    } catch (error) {
-      console.log(error);
-      return error;
-    }
+    // a failed insert must fail the request; it used to be returned as the
+    // "created" account with a 200
+    return this.accounts.create({
+      name,
+      description,
+      type,
+      status,
+    });
   }
 
   async getById(accountId: number): Promise<Accounts> {

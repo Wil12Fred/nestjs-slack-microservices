@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/sequelize';
 import { Users } from './models/users.model';
 import { CreateUserDTO } from './dto/createUsers.dto';
@@ -21,39 +21,28 @@ export class UsersService {
     accountId: number,
     usernameOrEmail: string,
   ): Promise<Users> {
-    try {
-      const usuario = await this.userModel.findOne({
-        where: {
-          [Op.or]: {
-            username: usernameOrEmail,
-            email: usernameOrEmail,
+    // a failed query must fail the request, not be returned as if it were
+    // the user (an Error object is truthy)
+    return this.userModel.findOne({
+      where: {
+        [Op.or]: {
+          username: usernameOrEmail,
+          email: usernameOrEmail,
+        },
+      },
+      include: [
+        {
+          model: UserByAccount,
+          where: {
+            accountId,
           },
         },
-        include: [
-          {
-            model: UserByAccount,
-            where: {
-              accountId,
-            },
-          },
-        ],
-      });
-      return usuario;
-    } catch (error) {
-      console.log(error);
-      return error;
-    }
+      ],
+    });
   }
 
   async findbyId(userId: number): Promise<Users> {
-    try {
-      const usuarioId = await this.userModel.findOne({ where: { userId } });
-      console.log(usuarioId);
-      return usuarioId;
-    } catch (error) {
-      console.log(error);
-      return error;
-    }
+    return this.userModel.findOne({ where: { userId } });
   }
 
   async filter(accountId: number, params: any): Promise<Users> {
@@ -126,19 +115,29 @@ export class UsersService {
     }
   }
 
+  /**
+   * Only name and lastname can change here. The DTO is not whitelisted, so
+   * copying the whole body would let a request overwrite the password with a
+   * plain-text value (breaking login), the username or the status.
+   */
   async updateUser(
     userId: number,
     updateUserDTO: UpdateUserDto,
   ): Promise<Users> {
-    const newUserData: any = updateUserDTO;
-
     const user = await this.userModel.findOne({
       where: {
         userId: userId,
       },
     });
-
-    await user.update(newUserData);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    const changes: Partial<Pick<Users, 'name' | 'lastname'>> = {};
+    if (updateUserDTO.name !== undefined) changes.name = updateUserDTO.name;
+    if (updateUserDTO.lastname !== undefined) {
+      changes.lastname = updateUserDTO.lastname;
+    }
+    await user.update(changes);
 
     return user.save();
   }
@@ -176,7 +175,9 @@ export class UsersService {
         userId: userId,
       },
     });
-
-    user.destroy();
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    await user.destroy();
   }
 }

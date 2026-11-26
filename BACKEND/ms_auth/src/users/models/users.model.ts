@@ -63,4 +63,31 @@ export class Users extends Model {
 
   @BelongsToMany(() => Accounts, () => UserByAccount, 'userId')
   account: Accounts[];
+
+  /**
+   * Every response that serialises a user goes through here, so the password
+   * hash can never leave the service, whichever endpoint returns the user.
+   */
+  toJSON(): any {
+    const values = { ...(super.toJSON() as Record<string, unknown>) };
+    delete values.password;
+    return values;
+  }
+
+  /** What one user may see of another user of the same account. */
+  toPublicProfile(): PublicProfile {
+    return {
+      userId: this.userId,
+      name: this.name,
+      lastname: this.lastname,
+      username: this.username,
+    };
+  }
+}
+
+export interface PublicProfile {
+  userId: number;
+  name: string;
+  lastname: string;
+  username: string;
 }

@@ -1,11 +1,4 @@
-import {
-  Body,
-  Controller,
-  HttpException,
-  HttpStatus,
-  Post,
-  Res,
-} from '@nestjs/common';
+import { Body, Controller, HttpStatus, Post, Res } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiBody,
@@ -17,6 +10,7 @@ import {
 import { Response } from 'express';
 import { AccountsService } from './accounts.service';
 import { CreateAccountsDTO } from './dto/createAccounts.dto';
+import { rethrowAsHttp } from 'src/utils/http-errors';
 
 @ApiBearerAuth()
 @ApiTags('accounts')
@@ -47,13 +41,7 @@ export class AccountsController {
         accountCreated,
       });
     } catch (error) {
-      throw new HttpException(
-        {
-          status: 404,
-          error: 'La cuenta es inválida' + error.message,
-        },
-        HttpStatus.FORBIDDEN,
-      );
+      rethrowAsHttp(error, 'La cuenta es inválida');
     }
   }
 }

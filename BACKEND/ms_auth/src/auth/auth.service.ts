@@ -26,10 +26,13 @@ export class AuthService {
       userId: user.userId,
       username: user.username,
       email: user.email,
-      accountId: loginDto.accountId,
+      // the body value is the raw `account` header string; ValidationPipe
+      // does not transform it, so normalise it before it is signed
+      accountId: Number(loginDto.accountId),
     };
     const token = this._createToken(payload);
-    delete user.password;
+    // the password hash is dropped by Users.toJSON (a `delete` on a
+    // Sequelize instance does not remove it from the serialised object)
     return { user, token };
   }
 
